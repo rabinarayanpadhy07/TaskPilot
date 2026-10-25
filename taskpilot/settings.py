@@ -55,17 +55,18 @@ if DJANGO_ENV not in {"development", "production"}:
     raise ImproperlyConfigured("DJANGO_ENV must be 'development' or 'production'.")
 IS_PRODUCTION = DJANGO_ENV == "production"
 TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
+COLLECTSTATIC = any("collectstatic" in arg for arg in sys.argv)
 
 DEBUG = env_bool("DJANGO_DEBUG", not IS_PRODUCTION)
-if IS_PRODUCTION and DEBUG:
+if IS_PRODUCTION and DEBUG and not COLLECTSTATIC:
     raise ImproperlyConfigured("DJANGO_DEBUG must be off in production.")
 
-SECRET_KEY = env("DJANGO_SECRET_KEY", required=IS_PRODUCTION) or "dev-only-insecure-key-do-not-use-in-production"
-if IS_PRODUCTION and (len(SECRET_KEY) < 50 or SECRET_KEY.startswith("dev-only")):
+SECRET_KEY = env("DJANGO_SECRET_KEY", required=IS_PRODUCTION and not COLLECTSTATIC) or "dev-only-insecure-key-do-not-use-in-production-fallback-for-build-and-testing-12345"
+if IS_PRODUCTION and not COLLECTSTATIC and (len(SECRET_KEY) < 50 or SECRET_KEY.startswith("dev-only")):
     raise ImproperlyConfigured("DJANGO_SECRET_KEY must be a long random value in production.")
 
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "" if IS_PRODUCTION else "localhost,127.0.0.1")
-if IS_PRODUCTION and not ALLOWED_HOSTS:
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "" if (IS_PRODUCTION and not COLLECTSTATIC) else "localhost,127.0.0.1,*")
+if IS_PRODUCTION and not COLLECTSTATIC and not ALLOWED_HOSTS:
     raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS is required in production.")
 
 INSTALLED_APPS = [
@@ -135,7 +136,7 @@ if _db_url:
 else:
     _db_name = env("POSTGRES_DB", "taskpilot")
     _db_user = env("POSTGRES_USER", "taskpilot")
-    _db_password = env("POSTGRES_PASSWORD", required=True)
+    _db_password = env("POSTGRES_PASSWORD", required=not COLLECTSTATIC) or "build-only-db-pass"
     _db_host = env("POSTGRES_HOST", "localhost")
     _db_port = env("POSTGRES_PORT", "5432")
     _db_sslmode = env("POSTGRES_SSLMODE", "require" if IS_PRODUCTION else "prefer")
@@ -189,9 +190,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---------- Frontend, CORS, CSRF ----------
 
-FRONTEND_URL = env("FRONTEND_URL", "" if IS_PRODUCTION else "http://localhost:5173", required=IS_PRODUCTION).rstrip("/")
+FRONTEND_URL = env("FRONTEND_URL", "" if (IS_PRODUCTION and not COLLECTSTATIC) else "http://localhost:5173", required=IS_PRODUCTION and not COLLECTSTATIC).rstrip("/")
 # Only these origins may call the API from a browser (credentials allowed for the refresh cookie).
-CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "" if IS_PRODUCTION else "http://localhost:5173")
+CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", "" if (IS_PRODUCTION and not COLLECTSTATIC) else "http://localhost:5173")
 CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", ",".join(CORS_ALLOWED_ORIGINS))
 
@@ -295,7 +296,7 @@ LOGGING = {
 
 # ---------- Production hardening ----------
 
-if IS_PRODUCTION:
+if IS_PRODUCTION and not COLLECTSTATIC:
     if not CORS_ALLOWED_ORIGINS:
         raise ImproperlyConfigured("CORS_ALLOWED_ORIGINS must list the frontend origin(s) in production.")
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
