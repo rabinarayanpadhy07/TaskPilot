@@ -43,12 +43,26 @@ class ProjectViewSet(WorkspaceScopedMixin, viewsets.ModelViewSet):
     def get_serializer_context(self):
         context = super().get_serializer_context()
         if self.membership is not None:
-            ids = list(access.visible_projects(self.membership).values_list("pk", flat=True))
+            if self.action in ("retrieve", "update", "partial_update") and "pk" in self.kwargs:
+                try:
+                    ids = [int(self.kwargs["pk"])]
+                except (ValueError, TypeError):
+                    ids = list(access.visible_projects(self.membership).values_list("pk", flat=True))
+            else:
+                ids = list(access.visible_projects(self.membership).values_list("pk", flat=True))
             context["issue_counts"] = issue_counts_by_project(ids)
         return context
 
     def perform_create(self, serializer):
         user = self.request.user
+        data = serializer.validated_data
+        status = data.get("status")
+        phase = data.get("phase")
+        if status == Project.Status.COMPLETED and "phase" not in data:
+            serializer.validated_data["phase"] = Project.Phase.COMPLETED
+        elif phase == Project.Phase.COMPLETED and "status" not in data:
+            serializer.validated_data["status"] = Project.Status.COMPLETED
+
         with transaction.atomic():
             project = serializer.save(workspace=self.workspace, lead=serializer.validated_data.get("lead") or user)
             ProjectMembership.objects.create(project=project, user=user, role=ProjectRole.MANAGER)
@@ -56,6 +70,17 @@ class ProjectViewSet(WorkspaceScopedMixin, viewsets.ModelViewSet):
                 ProjectMembership.objects.get_or_create(project=project, user_id=project.lead_id, defaults={"role": ProjectRole.MANAGER})
 
     def perform_update(self, serializer):
+        data = serializer.validated_data
+        status = data.get("status")
+        phase = data.get("phase")
+
+        if status == Project.Status.COMPLETED and "phase" not in data:
+            serializer.validated_data["phase"] = Project.Phase.COMPLETED
+        elif phase == Project.Phase.COMPLETED and "status" not in data:
+            serializer.validated_data["status"] = Project.Status.COMPLETED
+        elif phase and phase != Project.Phase.COMPLETED and serializer.instance.status == Project.Status.COMPLETED and "status" not in data:
+            serializer.validated_data["status"] = Project.Status.ON_TRACK
+
         project = serializer.save()
         if project.lead_id:
             ProjectMembership.objects.get_or_create(project=project, user_id=project.lead_id, defaults={"role": ProjectRole.MANAGER})
@@ -101,14 +126,18 @@ class ProjectMemberViewSet(WorkspaceScopedMixin, viewsets.ModelViewSet):
         return context
 
     def perform_create(self, serializer):
-        serializer.save(project=self.project, user_id=serializer.validated_data.pop("user"))
+        user_id = serializer.validated_data["user"]
+        target_ws = WorkspaceMembership.objects.filter(workspace_id=self.membership.workspace_id, user_id=user_id).first()
+        access.assert_can_assign_project_role(self.membership, serializer.validated_data["role"], target_ws.role)
+        serializer.save(project=self.project, user_id=user_id)
 
     def perform_update(self, serializer):
-        serializer.validated_data.pop("user", None)  # membership can't be moved to another person
+        target_ws = WorkspaceMembership.objects.filter(workspace_id=self.membership.workspace_id, user_id=serializer.instance.user_id).first()
+        access.assert_can_assign_project_role(self.membership, serializer.validated_data["role"], target_ws.role)
         serializer.save()
 
     def perform_destroy(self, instance):
-        with transaction.atomic():
-            if self.project.lead_id == instance.user_id:
-                Project.objects.filter(pk=self.project.pk).update(lead=None)
-            instance.delete()
+        if instance.user_id == self.project.lead_id:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError("The project lead cannot be removed from the project.")
+        instance.delete()

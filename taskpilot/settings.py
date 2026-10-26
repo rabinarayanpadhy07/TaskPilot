@@ -149,7 +149,7 @@ DATABASES = {
         "PASSWORD": _db_password,
         "HOST": _db_host,
         "PORT": _db_port,
-        "CONN_MAX_AGE": int(env("POSTGRES_CONN_MAX_AGE", "60")),
+        "CONN_MAX_AGE": int(env("POSTGRES_CONN_MAX_AGE", "300")),
         "CONN_HEALTH_CHECKS": True,
         "OPTIONS": {"sslmode": _db_sslmode},
     }

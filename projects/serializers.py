@@ -31,7 +31,7 @@ class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = [
-            "id", "workspace", "key", "name", "description", "status", "visibility", "lead",
+            "id", "workspace", "key", "name", "description", "status", "phase", "target_date", "visibility", "lead",
             "members", "issue_counts", "my_role", "permissions", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
@@ -47,8 +47,8 @@ class ProjectSerializer(serializers.ModelSerializer):
             self.fields["key"].read_only = True
 
     def validate_key(self, value):
-        membership = self.context["membership"]
-        if Project.objects.filter(workspace_id=membership.workspace_id, key=value).exists():
+        membership = self.context.get("membership")
+        if membership and Project.objects.filter(workspace_id=membership.workspace_id, key=value).exists():
             raise serializers.ValidationError(f"A project with key {value} already exists in this workspace.")
         return value
 
@@ -59,14 +59,22 @@ class ProjectSerializer(serializers.ModelSerializer):
         return self.context.get("issue_counts", {}).get(project.pk, empty_issue_counts())
 
     def _project_membership(self, project):
-        membership = self.context["membership"]
+        membership = self.context.get("membership")
+        if not membership:
+            return None
         return next((m for m in project.memberships.all() if m.user_id == membership.user_id), None)
 
     def get_my_role(self, project) -> str | None:
-        return access.effective_project_role(self.context["membership"], project, self._project_membership(project))
+        membership = self.context.get("membership")
+        if not membership:
+            return None
+        return access.effective_project_role(membership, project, self._project_membership(project))
 
     def get_permissions(self, project) -> list[str]:
-        return sorted(access.project_permissions(self.context["membership"], project, self._project_membership(project)))
+        membership = self.context.get("membership")
+        if not membership:
+            return []
+        return sorted(access.project_permissions(membership, project, self._project_membership(project)))
 
 
 class ProjectMemberSerializer(serializers.ModelSerializer):

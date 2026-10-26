@@ -52,7 +52,15 @@ class IssueContextMixin:
     def get_serializer_context(self):
         context = super().get_serializer_context()
         if self.membership is not None:
-            context["project_perms"] = access.project_permissions_map(self.membership, list(access.visible_projects(self.membership)))
+            project_id = self.request.query_params.get("project") if hasattr(self, "request") and self.request else None
+            if project_id:
+                try:
+                    projects = list(access.visible_projects(self.membership).filter(pk=int(project_id)))
+                except (ValueError, TypeError):
+                    projects = list(access.visible_projects(self.membership))
+            else:
+                projects = list(access.visible_projects(self.membership))
+            context["project_perms"] = access.project_permissions_map(self.membership, projects)
         return context
 
 
@@ -314,4 +322,3 @@ class SearchView(WorkspaceScopedMixin, APIView):
             "issues": IssueSerializer(issues, many=True, context=context).data,
             "members": MemberSerializer(members, many=True, context=context).data,
         })
-

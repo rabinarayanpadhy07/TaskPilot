@@ -17,6 +17,13 @@ class Project(models.Model):
         PLANNING = "planning", "Planning"
         COMPLETED = "completed", "Completed"
 
+    class Phase(models.TextChoices):
+        PLANNING = "planning", "Planning"
+        DESIGN = "design", "Design"
+        DEVELOPMENT = "development", "Development"
+        TESTING = "testing", "Testing"
+        COMPLETED = "completed", "Completed"
+
     class Visibility(models.TextChoices):
         WORKSPACE = "workspace", "Workspace"
         PRIVATE = "private", "Private"
@@ -26,6 +33,8 @@ class Project(models.Model):
     name = models.CharField(max_length=80)
     description = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PLANNING)
+    phase = models.CharField(max_length=20, choices=Phase.choices, default=Phase.PLANNING)
+    target_date = models.DateField(null=True, blank=True)
     visibility = models.CharField(max_length=20, choices=Visibility.choices, default=Visibility.WORKSPACE)
     lead = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     issue_counter = models.PositiveIntegerField(default=0, editable=False)
@@ -37,9 +46,14 @@ class Project(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["workspace", "key"], name="unique_project_key_per_workspace"),
             models.CheckConstraint(condition=Q(status__in=["on_track", "at_risk", "off_track", "planning", "completed"]), name="project_status_valid"),
+            models.CheckConstraint(condition=Q(phase__in=["planning", "design", "development", "testing", "completed"]), name="project_phase_valid"),
             models.CheckConstraint(condition=Q(visibility__in=["workspace", "private"]), name="project_visibility_valid"),
         ]
-        indexes = [models.Index(fields=["workspace", "visibility"])]
+        indexes = [
+            models.Index(fields=["workspace", "visibility"]),
+            models.Index(fields=["workspace", "status"]),
+            models.Index(fields=["workspace", "phase"]),
+        ]
 
     def __str__(self):
         return f"{self.key} · {self.name}"
