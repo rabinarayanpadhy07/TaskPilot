@@ -219,7 +219,7 @@ DEFAULT_FROM_EMAIL = env("DJANGO_DEFAULT_FROM_EMAIL", "TaskPilot <no-reply@taskp
 CACHE_BACKEND = env("DJANGO_CACHE", "database" if IS_PRODUCTION else "locmem")
 CACHES = {
     "default": (
-        {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "taskpilot_cache"}
+        {"BACKEND": "taskpilot.cache.SafeDatabaseCache", "LOCATION": "taskpilot_cache"}
         if CACHE_BACKEND == "database"
         else {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
     )
